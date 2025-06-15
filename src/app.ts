@@ -42,11 +42,17 @@ app.use(
 );
 
 // Add a debug middleware to log requests
-app.use((req, _res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  console.log("Headers:", req.headers);
-  next();
-});
+app.use(
+  (
+    req: express.Request,
+    _res: express.Response,
+    next: express.NextFunction
+  ) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+    console.log("Headers:", req.headers);
+    next();
+  }
+);
 
 // Routes
 app.use("/api", routes);
