@@ -1,23 +1,25 @@
 import { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
+import { Prisma } from "@prisma/client";
 
 export class AppError extends Error {
-  constructor(
-    public statusCode: number,
-    public message: string,
-    public isOperational = true
-  ) {
+  statusCode: number;
+
+  constructor(statusCode: number, message: string) {
     super(message);
-    Object.setPrototypeOf(this, AppError.prototype);
+    this.statusCode = statusCode;
+    this.name = "AppError";
   }
 }
 
 export const errorHandler = (
   err: Error,
-  req: Request,
+  _req: Request,
   res: Response,
-  next: NextFunction
+  _next: NextFunction
 ) => {
+  console.error("Error:", err);
+
   if (err instanceof AppError) {
     return res.status(err.statusCode).json({
       status: "error",
@@ -33,8 +35,21 @@ export const errorHandler = (
     });
   }
 
-  // Log unexpected errors
-  console.error("Unexpected error:", err);
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    if (err.code === "P2002") {
+      return res.status(400).json({
+        status: "error",
+        message: "A record with this value already exists",
+      });
+    }
+
+    if (err.code === "P2025") {
+      return res.status(404).json({
+        status: "error",
+        message: "Record not found",
+      });
+    }
+  }
 
   return res.status(500).json({
     status: "error",
@@ -42,9 +57,13 @@ export const errorHandler = (
   });
 };
 
-export const notFoundHandler = (req: Request, res: Response) => {
+export const notFoundHandler = (
+  _req: Request,
+  res: Response,
+  _next: NextFunction
+) => {
   res.status(404).json({
     status: "error",
-    message: `Not found - ${req.originalUrl}`,
+    message: "Not found",
   });
 };

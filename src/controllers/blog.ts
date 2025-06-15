@@ -1,84 +1,63 @@
 import { Request, Response, NextFunction } from "express";
-import { z } from "zod";
-import { PrismaClient, BlogPostStatus } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import { AppError } from "../middleware/error";
 import { AuthRequest } from "../middleware/auth";
+import { z } from "zod";
 import slugify from "slugify";
-import NodeCache from "node-cache";
 
 const prisma = new PrismaClient();
-
-// Initialize cache with 5 minutes TTL
-const cache = new NodeCache({ stdTTL: 300 });
 
 // Validation schemas
 const createBlogPostSchema = z.object({
   title: z.string().min(5).max(200),
   content: z.string().min(100),
-  excerpt: z.string().max(300).nullable().optional(),
+  excerpt: z.string().max(300).optional(),
   tags: z.array(z.string()).optional(),
-  imageUrl: z.string().url().nullable().optional(),
-  published: z.boolean().optional(),
+  imageUrl: z.string().url().optional(),
 });
-
-const updateBlogPostSchema = createBlogPostSchema.partial();
 
 // Helper function to generate slug
 const generateSlug = (title: string): string => {
-  return slugify(title, {
-    lower: true,
-    strict: true,
-    trim: true,
-  });
+  return slugify(title, { lower: true, strict: true });
 };
 
-// Create a new blog post
 export const createBlogPost = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
-    const userId = req.user?.userId;
+    const userId = req.user?.id;
     if (!userId) {
       throw new AppError(401, "Unauthorized");
     }
 
-    const data = createBlogPostSchema.parse(req.body);
-    const slug = generateSlug(data.title);
+    const { title, content, excerpt, tags, imageUrl } =
+      createBlogPostSchema.parse(req.body);
+    const slug = generateSlug(title);
 
-    // Calculate read time (assuming average reading speed of 200 words per minute)
-    const wordCount = data.content.split(/\s+/).length;
-    const readTime = Math.ceil(wordCount / 200);
-
-    const post = await prisma.blogPost.create({
+    const blogPost = await prisma.blogPost.create({
       data: {
-        ...data,
+        title,
+        content,
+        excerpt,
+        tags,
+        imageUrl,
         slug,
         authorId: userId,
-        readTime,
-        status: BlogPostStatus.PENDING, // Set initial status to PENDING
-        published: false, // Always start as unpublished
       },
       include: {
         author: {
           select: {
-            id: true,
             name: true,
-            email: true,
           },
         },
       },
     });
 
-    // Invalidate cache
-    cache.flushAll();
-
     res.status(201).json({
       status: "success",
-      data: {
-        post,
-      },
+      data: { blogPost },
     });
   } catch (error) {
     next(error);
@@ -90,18 +69,12 @@ export const getBlogPosts = async (
   req: Request,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
-    const { page = 1, limit = 10, tag, authorId } = req.query;
+    const { page = 1, limit = 10, tag } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
 
-    // Build filter conditions
-    const where = {
-      status: BlogPostStatus.APPROVED, // Only show approved posts
-      published: true, // Only show published posts
-      ...(tag && { tags: { has: tag as string } }),
-      ...(authorId && { authorId: authorId as string }),
-    };
+    const where = tag ? { tags: { has: tag as string } } : {};
 
     const [posts, total] = await Promise.all([
       prisma.blogPost.findMany({
@@ -109,9 +82,7 @@ export const getBlogPosts = async (
         include: {
           author: {
             select: {
-              id: true,
               name: true,
-              email: true,
             },
           },
         },
@@ -146,22 +117,28 @@ export const getBlogPost = async (
   req: Request,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
-    const { slug } = req.params;
+    const { id } = req.params;
 
-    const post = await prisma.blogPost.findFirst({
-      where: {
-        slug,
-        status: BlogPostStatus.APPROVED, // Only show approved posts
-        published: true, // Only show published posts
-      },
+    const post = await prisma.blogPost.findUnique({
+      where: { id },
       include: {
         author: {
           select: {
-            id: true,
             name: true,
-            email: true,
+          },
+        },
+        comments: {
+          include: {
+            author: {
+              select: {
+                name: true,
+              },
+            },
+          },
+          orderBy: {
+            createdAt: "desc",
           },
         },
       },
@@ -173,9 +150,7 @@ export const getBlogPost = async (
 
     res.json({
       status: "success",
-      data: {
-        post,
-      },
+      data: { post },
     });
   } catch (error) {
     next(error);
@@ -187,70 +162,40 @@ export const updateBlogPost = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
-    const { id } = req.params;
-    const userId = req.user?.userId;
+    const userId = req.user?.id;
     if (!userId) {
       throw new AppError(401, "Unauthorized");
     }
 
-    const data = updateBlogPostSchema.parse(req.body);
+    const { id } = req.params;
+    const { title, content, tags } = createBlogPostSchema.parse(req.body);
 
-    // Check if post exists and belongs to user
-    const existingPost = await prisma.blogPost.findUnique({
+    const post = await prisma.blogPost.findUnique({
       where: { id },
     });
 
-    if (!existingPost) {
+    if (!post) {
       throw new AppError(404, "Blog post not found");
     }
 
-    if (existingPost.authorId !== userId) {
-      throw new AppError(403, "Not authorized to update this post");
-    }
-
-    // If title is being updated, generate new slug
-    let slug = existingPost.slug;
-    if (data.title && data.title !== existingPost.title) {
-      slug = generateSlug(data.title);
-    }
-
-    // Calculate read time if content is updated
-    let readTime = existingPost.readTime;
-    if (data.content) {
-      const wordCount = data.content.split(/\s+/).length;
-      readTime = Math.ceil(wordCount / 200);
+    if (post.authorId !== userId && req.user?.role !== "ADMIN") {
+      throw new AppError(403, "Forbidden");
     }
 
     const updatedPost = await prisma.blogPost.update({
       where: { id },
       data: {
-        ...data,
-        slug,
-        readTime,
-        status: BlogPostStatus.PENDING, // Reset status to PENDING when post is updated
-        published: false, // Reset published status when post is updated
-      },
-      include: {
-        author: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
+        title,
+        content,
+        tags,
       },
     });
 
-    // Invalidate cache
-    cache.flushAll();
-
     res.json({
       status: "success",
-      data: {
-        post: updatedPost,
-      },
+      data: { post: updatedPost },
     });
   } catch (error) {
     next(error);
@@ -262,33 +207,30 @@ export const deleteBlogPost = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
-    const { id } = req.params;
-    const userId = req.user?.userId;
+    const userId = req.user?.id;
     if (!userId) {
       throw new AppError(401, "Unauthorized");
     }
 
-    // Check if post exists and belongs to user
-    const existingPost = await prisma.blogPost.findUnique({
+    const { id } = req.params;
+
+    const post = await prisma.blogPost.findUnique({
       where: { id },
     });
 
-    if (!existingPost) {
+    if (!post) {
       throw new AppError(404, "Blog post not found");
     }
 
-    if (existingPost.authorId !== userId) {
-      throw new AppError(403, "Not authorized to delete this post");
+    if (post.authorId !== userId && req.user?.role !== "ADMIN") {
+      throw new AppError(403, "Forbidden");
     }
 
     await prisma.blogPost.delete({
       where: { id },
     });
-
-    // Invalidate cache
-    cache.flushAll();
 
     res.json({
       status: "success",

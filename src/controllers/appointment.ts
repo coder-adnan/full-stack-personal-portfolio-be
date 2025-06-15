@@ -3,10 +3,6 @@ import { z } from "zod";
 import { PrismaClient } from "@prisma/client";
 import { AppError } from "../middleware/error";
 import { AuthRequest } from "../middleware/auth";
-import {
-  generateAppointmentConfirmationEmail,
-  sendEmail,
-} from "../utils/email";
 
 const prisma = new PrismaClient();
 
@@ -126,73 +122,49 @@ async function getAvailableSlotsForDate(date: Date): Promise<string[]> {
   return allSlots.filter((slot) => !bookedTimes.has(slot));
 }
 
+// Validation schemas
 const createAppointmentSchema = z.object({
-  date: z.string().transform((str) => new Date(str)),
-  time: z.string(),
-  topic: z.string().min(5),
+  startTime: z.string().datetime(),
+  endTime: z.string().datetime(),
+  topic: z.string().min(1),
   company: z.string().optional(),
   message: z.string().optional(),
 });
+
+const updateAppointmentSchema = createAppointmentSchema.partial();
 
 export const createAppointment = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
-    const userId = req.user?.userId;
+    const userId = req.user?.id;
     if (!userId) {
       throw new AppError(401, "Unauthorized");
     }
 
-    const { date, time, topic, company, message } =
+    const { startTime, topic, company, message } =
       createAppointmentSchema.parse(req.body);
 
-    // Check if the date and time slot is available
-    const existingAppointment = await prisma.appointment.findFirst({
-      where: {
-        date,
-        time,
-        status: {
-          notIn: ["CANCELLED"],
-        },
-      },
-    });
-
-    if (existingAppointment) {
-      throw new AppError(400, "This time slot is already booked");
-    }
-
-    // Create appointment
     const appointment = await prisma.appointment.create({
       data: {
-        userId,
-        date,
-        time,
+        date: new Date(startTime),
+        time: new Date(startTime).toTimeString().slice(0, 5),
         topic,
         company,
         message,
+        userId,
       },
       include: {
         user: {
           select: {
-            email: true,
             name: true,
+            email: true,
           },
         },
       },
     });
-
-    // Send confirmation email
-    await sendEmail(
-      generateAppointmentConfirmationEmail(
-        appointment.user.email,
-        appointment.user.name,
-        appointment.date,
-        appointment.time,
-        appointment.topic
-      )
-    );
 
     res.status(201).json({
       status: "success",
@@ -207,9 +179,9 @@ export const getAppointments = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
-    const userId = req.user?.userId;
+    const userId = req.user?.id;
     if (!userId) {
       throw new AppError(401, "Unauthorized");
     }
@@ -219,15 +191,15 @@ export const getAppointments = async (
         userId,
       },
       include: {
-        payment: {
+        user: {
           select: {
-            status: true,
-            amount: true,
+            name: true,
+            email: true,
           },
         },
       },
       orderBy: {
-        date: "desc",
+        createdAt: "desc",
       },
     });
 
@@ -244,23 +216,22 @@ export const getAppointment = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
-    const userId = req.user?.userId;
-    const { id } = req.params;
-
+    const userId = req.user?.id;
     if (!userId) {
       throw new AppError(401, "Unauthorized");
     }
 
+    const { id } = req.params;
+
     const appointment = await prisma.appointment.findUnique({
       where: { id },
       include: {
-        payment: {
+        user: {
           select: {
-            status: true,
-            amount: true,
-            stripePaymentId: true,
+            name: true,
+            email: true,
           },
         },
       },
@@ -283,30 +254,66 @@ export const getAppointment = async (
   }
 };
 
-export const cancelAppointment = async (
+export const updateAppointment = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
-    const userId = req.user?.userId;
-    const { id } = req.params;
-
+    const userId = req.user?.id;
     if (!userId) {
       throw new AppError(401, "Unauthorized");
     }
 
-    const appointment = await prisma.appointment.findUnique({
+    const { id } = req.params;
+    const { startTime, topic, company, message } =
+      updateAppointmentSchema.parse(req.body);
+
+    const appointment = await prisma.appointment.update({
       where: { id },
+      data: {
+        date: startTime ? new Date(startTime) : undefined,
+        time: startTime
+          ? new Date(startTime).toTimeString().slice(0, 5)
+          : undefined,
+        topic,
+        company,
+        message,
+      },
       include: {
         user: {
           select: {
-            email: true,
             name: true,
+            email: true,
           },
         },
-        payment: true,
       },
+    });
+
+    res.json({
+      status: "success",
+      data: { appointment },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const cancelAppointment = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new AppError(401, "Unauthorized");
+    }
+
+    const { id } = req.params;
+
+    const appointment = await prisma.appointment.findUnique({
+      where: { id },
     });
 
     if (!appointment) {
@@ -317,39 +324,62 @@ export const cancelAppointment = async (
       throw new AppError(403, "Forbidden");
     }
 
-    if (appointment.status === "CANCELLED") {
-      throw new AppError(400, "Appointment is already cancelled");
-    }
-
-    // Update appointment status
     const updatedAppointment = await prisma.appointment.update({
       where: { id },
       data: {
         status: "CANCELLED",
       },
-    });
-
-    // Send cancellation email
-    await sendEmail({
-      to: appointment.user.email,
-      subject: "Appointment Cancelled",
-      html: `
-        <h1>Appointment Cancelled</h1>
-        <p>Dear ${appointment.user.name},</p>
-        <p>Your appointment scheduled for ${appointment.date.toLocaleDateString()} at ${
-        appointment.time
-      } has been cancelled.</p>
-        ${
-          appointment.payment?.status === "COMPLETED"
-            ? "<p>A refund will be processed for your payment.</p>"
-            : ""
-        }
-      `,
+      include: {
+        user: {
+          select: {
+            name: true,
+            email: true,
+          },
+        },
+      },
     });
 
     res.json({
       status: "success",
       data: { appointment: updatedAppointment },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteAppointment = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new AppError(401, "Unauthorized");
+    }
+
+    const { id } = req.params;
+
+    const appointment = await prisma.appointment.findUnique({
+      where: { id },
+    });
+
+    if (!appointment) {
+      throw new AppError(404, "Appointment not found");
+    }
+
+    if (appointment.userId !== userId && req.user?.role !== "ADMIN") {
+      throw new AppError(403, "Forbidden");
+    }
+
+    await prisma.appointment.delete({
+      where: { id },
+    });
+
+    res.json({
+      status: "success",
+      data: null,
     });
   } catch (error) {
     next(error);

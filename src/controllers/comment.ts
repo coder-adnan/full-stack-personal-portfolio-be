@@ -1,168 +1,83 @@
 import { Request, Response, NextFunction } from "express";
-import { PrismaClient, Role, Prisma } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
+import { AppError } from "../middleware/error";
+import { AuthRequest } from "../middleware/auth";
 import { z } from "zod";
 import NodeCache from "node-cache";
-import { AuthRequest } from "../middleware/auth";
 
 const prisma = new PrismaClient();
 const cache = new NodeCache({ stdTTL: 300 }); // 5 minutes cache
 
-// Extend Express Request type to include user
-declare global {
-  namespace Express {
-    interface Request {
-      user?: {
-        id: string;
-        email: string;
-        role: Role;
-      };
-    }
-  }
-}
-
 // Validation schemas
 const createCommentSchema = z.object({
-  content: z.string().min(1).max(1000),
-  parentId: z.string().nullable().optional(),
+  content: z.string().min(1),
+  postId: z.string(),
+  parentId: z.string().optional(),
 });
-
-const updateCommentSchema = z.object({
-  content: z.string().min(1).max(1000),
-});
-
-type CommentWithAuthor = {
-  id: string;
-  content: string;
-  postId: string;
-  authorId: string;
-  parentId: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  author: {
-    id: string;
-    name: string;
-    email: string;
-  };
-  replies?: CommentWithAuthor[];
-};
 
 // Get comments for a post
 export const getComments = async (
   req: Request,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
     const { postId } = req.params;
     const { page = 1, limit = 10 } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
 
-    // Try to get from cache first
-    const cacheKey = `post-comments-${postId}-${page}-${limit}`;
-    const cachedComments = cache.get<{
-      comments: CommentWithAuthor[];
-      pagination: {
-        total: number;
-        page: number;
-        limit: number;
-        totalPages: number;
-      };
-    }>(cacheKey);
-
-    if (cachedComments) {
-      console.log("Cache hit for comments:", cacheKey);
-      return res.json({
-        status: "success",
-        data: cachedComments,
-      });
-    }
-
-    console.log("Cache miss for comments:", cacheKey);
-    console.log("Fetching comments for post:", postId);
-
-    // Get all comments for this post with their replies
-    const allComments = await prisma.comment.findMany({
-      where: {
-        postId,
-      },
-      include: {
-        author: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
+    const [comments, total] = await Promise.all([
+      prisma.comment.findMany({
+        where: {
+          postId,
+          parentId: null, // Only get top-level comments
+        },
+        include: {
+          author: {
+            select: {
+              name: true,
+            },
+          },
+          replies: {
+            include: {
+              author: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+            orderBy: {
+              createdAt: "asc",
+            },
           },
         },
-      },
-      orderBy: {
-        createdAt: "asc",
-      },
-    });
-
-    // Organize comments into a tree structure
-    const commentMap = new Map<string, CommentWithAuthor>();
-    const topLevelComments: CommentWithAuthor[] = [];
-
-    // First pass: create comment objects with empty replies array
-    allComments.forEach((comment) => {
-      commentMap.set(comment.id, {
-        ...comment,
-        replies: [],
-      });
-    });
-
-    // Second pass: organize into tree structure
-    allComments.forEach((comment) => {
-      const commentWithReplies = commentMap.get(comment.id)!;
-      if (comment.parentId) {
-        // This is a reply, add it to its parent's replies
-        const parentComment = commentMap.get(comment.parentId);
-        if (parentComment) {
-          parentComment.replies!.push(commentWithReplies);
-        }
-      } else {
-        // This is a top-level comment
-        topLevelComments.push(commentWithReplies);
-      }
-    });
-
-    // Sort top-level comments by creation date (newest first)
-    topLevelComments.sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-
-    // Apply pagination to top-level comments
-    const paginatedComments = topLevelComments.slice(
-      skip,
-      skip + Number(limit)
-    );
-    const total = topLevelComments.length;
-
-    console.log("Found comments:", paginatedComments.length);
-    console.log("Total comments:", total);
-
-    const totalPages = Math.ceil(total / Number(limit));
-    const result = {
-      comments: paginatedComments,
-      pagination: {
-        total,
-        page: Number(page),
-        limit: Number(limit),
-        totalPages,
-      },
-    };
-
-    // Cache the result
-    cache.set(cacheKey, result);
-    console.log("Cached comments for key:", cacheKey);
+        orderBy: {
+          createdAt: "desc",
+        },
+        skip,
+        take: Number(limit),
+      }),
+      prisma.comment.count({
+        where: {
+          postId,
+          parentId: null,
+        },
+      }),
+    ]);
 
     res.json({
       status: "success",
-      data: result,
+      data: {
+        comments,
+        pagination: {
+          total,
+          page: Number(page),
+          limit: Number(limit),
+          totalPages: Math.ceil(total / Number(limit)),
+        },
+      },
     });
   } catch (error) {
-    console.error("Error fetching comments:", error);
     next(error);
   }
 };
@@ -187,90 +102,53 @@ export const createComment = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
-    console.log("Create comment request body:", req.body);
-    const { postId } = req.params;
-    console.log("Post ID:", postId);
-
-    // Validate and get the comment data
-    const validatedData = createCommentSchema.parse(req.body);
-    console.log("Validated comment data:", validatedData);
-
-    const userId = req.user?.userId;
-
+    const userId = req.user?.id;
     if (!userId) {
-      return res.status(401).json({
-        status: "error",
-        message: "You must be logged in to comment",
-      });
+      throw new AppError(401, "Unauthorized");
     }
 
-    // Check if the post exists and is published
-    const post = await prisma.blogPost.findFirst({
-      where: {
-        id: postId,
-        published: true,
-      },
+    const { content, postId, parentId } = createCommentSchema.parse(req.body);
+
+    // Verify post exists
+    const post = await prisma.blogPost.findUnique({
+      where: { id: postId },
     });
 
     if (!post) {
-      return res.status(404).json({
-        status: "error",
-        message: "Post not found or not published",
-      });
+      throw new AppError(404, "Blog post not found");
     }
 
-    // If this is a reply, verify the parent comment exists
-    if (validatedData.parentId) {
-      const parentComment = await prisma.comment.findFirst({
-        where: {
-          id: validatedData.parentId,
-          postId,
-        },
+    // If this is a reply, verify parent comment exists
+    if (parentId) {
+      const parentComment = await prisma.comment.findUnique({
+        where: { id: parentId },
       });
 
       if (!parentComment) {
-        return res.status(404).json({
-          status: "error",
-          message: "Parent comment not found",
-        });
+        throw new AppError(404, "Parent comment not found");
+      }
+
+      if (parentComment.postId !== postId) {
+        throw new AppError(400, "Parent comment does not belong to this post");
       }
     }
 
-    const comment = await prisma.$transaction(async (tx) => {
-      const result = await tx.comment.create({
-        data: {
-          content: validatedData.content,
-          postId,
-          authorId: userId,
-          parentId: validatedData.parentId,
-        },
-        include: {
-          author: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
-          },
-          replies: {
-            include: {
-              author: {
-                select: {
-                  id: true,
-                  name: true,
-                  email: true,
-                },
-              },
-            },
-            orderBy: {
-              createdAt: "asc",
-            },
+    const comment = await prisma.comment.create({
+      data: {
+        content,
+        postId,
+        parentId,
+        authorId: userId,
+      },
+      include: {
+        author: {
+          select: {
+            name: true,
           },
         },
-      });
-      return result as CommentWithAuthor;
+      },
     });
 
     // Invalidate all comment caches for this post
@@ -281,7 +159,6 @@ export const createComment = async (
       data: { comment },
     });
   } catch (error) {
-    console.error("Unexpected error:", error);
     next(error);
   }
 };
@@ -291,53 +168,40 @@ export const updateComment = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
-    const { commentId } = req.params;
-    const { content } = updateCommentSchema.parse(req.body);
-    const userId = req.user?.userId;
-
+    const userId = req.user?.id;
     if (!userId) {
-      return res.status(401).json({
-        status: "error",
-        message: "You must be logged in to update a comment",
-      });
+      throw new AppError(401, "Unauthorized");
     }
 
+    const { id } = req.params;
+    const { content } = createCommentSchema
+      .pick({ content: true })
+      .parse(req.body);
+
     const comment = await prisma.comment.findUnique({
-      where: { id: commentId },
+      where: { id },
     });
 
     if (!comment) {
-      return res.status(404).json({
-        status: "error",
-        message: "Comment not found",
-      });
+      throw new AppError(404, "Comment not found");
     }
 
-    // Only the author or an admin can update the comment
     if (comment.authorId !== userId && req.user?.role !== "ADMIN") {
-      return res.status(403).json({
-        status: "error",
-        message: "You can only update your own comments",
-      });
+      throw new AppError(403, "Forbidden");
     }
 
-    const updatedComment = await prisma.$transaction(async (tx) => {
-      const result = await tx.comment.update({
-        where: { id: commentId },
-        data: { content },
-        include: {
-          author: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
+    const updatedComment = await prisma.comment.update({
+      where: { id },
+      data: { content },
+      include: {
+        author: {
+          select: {
+            name: true,
           },
         },
-      });
-      return result as CommentWithAuthor;
+      },
     });
 
     // Invalidate cache
@@ -357,55 +221,29 @@ export const deleteComment = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
-    const { commentId } = req.params;
-    const userId = req.user?.userId;
-
+    const userId = req.user?.id;
     if (!userId) {
-      return res.status(401).json({
-        status: "error",
-        message: "You must be logged in to delete a comment",
-      });
+      throw new AppError(401, "Unauthorized");
     }
 
-    // Get the comment and its post ID before deleting
+    const { id } = req.params;
+
     const comment = await prisma.comment.findUnique({
-      where: { id: commentId },
-      include: {
-        replies: true,
-      },
+      where: { id },
     });
 
     if (!comment) {
-      return res.status(404).json({
-        status: "error",
-        message: "Comment not found",
-      });
+      throw new AppError(404, "Comment not found");
     }
 
-    // Only the author or an admin can delete the comment
     if (comment.authorId !== userId && req.user?.role !== "ADMIN") {
-      return res.status(403).json({
-        status: "error",
-        message: "You can only delete your own comments",
-      });
+      throw new AppError(403, "Forbidden");
     }
 
-    await prisma.$transaction(async (tx) => {
-      // First delete all replies to this comment
-      if (comment.replies.length > 0) {
-        await tx.comment.deleteMany({
-          where: {
-            parentId: commentId,
-          },
-        });
-      }
-
-      // Then delete the comment itself
-      await tx.comment.delete({
-        where: { id: commentId },
-      });
+    await prisma.comment.delete({
+      where: { id },
     });
 
     // Invalidate all comment caches for this post
@@ -413,15 +251,9 @@ export const deleteComment = async (
 
     res.json({
       status: "success",
-      message: "Comment and its replies deleted successfully",
-      data: {
-        deletedCommentId: commentId,
-        postId: comment.postId,
-        parentId: comment.parentId,
-      },
+      data: null,
     });
   } catch (error) {
-    console.error("Error deleting comment:", error);
     next(error);
   }
 };

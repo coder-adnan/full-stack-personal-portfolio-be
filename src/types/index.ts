@@ -28,9 +28,7 @@ export enum PaymentStatus {
 }
 
 export interface JWTPayload {
-  userId: string;
-  email: string;
-  role: Role;
+  id: string;
 }
 
 export interface CreateUserInput {

@@ -1,4 +1,4 @@
-import express from "express";
+import { Router } from "express";
 import authRoutes from "./auth";
 import appointmentRoutes from "./appointment";
 import paymentRoutes from "./payment";
@@ -6,14 +6,14 @@ import blogRoutes from "./blog";
 import adminRoutes from "./admin";
 import commentRoutes from "./comment";
 
-const router = express.Router();
+const router = Router();
 
-// Health check endpoint
-router.get("/health", (req, res) => {
-  res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+// Health check
+router.get("/health", (_req, res) => {
+  res.json({ status: "ok" });
 });
 
-// API routes
+// Routes
 router.use("/auth", authRoutes);
 router.use("/appointments", appointmentRoutes);
 router.use("/payments", paymentRoutes);
