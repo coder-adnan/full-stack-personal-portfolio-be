@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { AppError } from "./error";
 import { PrismaClient, Role } from "@prisma/client";
+import jwt from "jsonwebtoken";
 
 const prisma = new PrismaClient();
 
@@ -29,23 +30,33 @@ export const authenticate = async (
       throw new AppError(401, "Not authorized to access this route");
     }
 
-    // TODO: Implement JWT verification
-    const userId = "dummy-user-id"; // This should come from JWT verification
+    try {
+      const decoded = jwt.verify(
+        token,
+        process.env.JWT_SECRET || "your-secret-key"
+      ) as { id: string };
+      const userId = decoded.id;
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        role: true,
-      },
-    });
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          role: true,
+        },
+      });
 
-    if (!user) {
-      throw new AppError(401, "Not authorized to access this route");
+      if (!user) {
+        throw new AppError(401, "User not found");
+      }
+
+      req.user = user;
+      next();
+    } catch (error) {
+      if (error instanceof jwt.JsonWebTokenError) {
+        throw new AppError(401, "Invalid token");
+      }
+      throw error;
     }
-
-    req.user = user;
-    next();
   } catch (error) {
     next(error);
   }

@@ -31,10 +31,22 @@ app.use(
       process.env.FRONTEND_URL || "http://localhost:5173",
       "https://full-stack-personal-portfolio-tau.vercel.app",
       "https://full-stack-personal-portfolio-tau.vercel.app/en",
+      "https://full-stack-personal-portfolio-tau.vercel.app/",
     ],
     credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    exposedHeaders: ["Content-Range", "X-Content-Range"],
+    maxAge: 600, // Cache preflight request for 10 minutes
   })
 );
+
+// Add a debug middleware to log requests
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  console.log("Headers:", req.headers);
+  next();
+});
 
 // Routes
 app.use("/api", routes);
