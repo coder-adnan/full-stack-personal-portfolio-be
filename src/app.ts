@@ -27,26 +27,50 @@ app.use(limiter);
 // CORS
 app.use(
   cors({
-    origin: [
-      process.env.FRONTEND_URL || "http://localhost:5173",
-      "https://full-stack-personal-portfolio-tau.vercel.app",
-      "https://full-stack-personal-portfolio-tau.vercel.app/en",
-      "https://full-stack-personal-portfolio-tau.vercel.app/",
-    ],
+    origin: true, // Allow all origins temporarily for debugging
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "Accept",
+    ],
     exposedHeaders: ["Content-Range", "X-Content-Range"],
-    maxAge: 600, // Cache preflight request for 10 minutes
+    maxAge: 600,
   })
 );
 
-// Add a debug middleware to log requests
+// Add detailed request logging middleware
 app.use((req, _res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  console.log("Headers:", req.headers);
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] ${req.method} ${req.path}`);
+  console.log("Request Headers:", JSON.stringify(req.headers, null, 2));
+  console.log("Request Body:", JSON.stringify(req.body, null, 2));
+  console.log("Request Query:", JSON.stringify(req.query, null, 2));
   next();
 });
+
+// Add error logging middleware
+app.use(
+  (
+    err: any,
+    req: express.Request,
+    _res: express.Response,
+    next: express.NextFunction
+  ) => {
+    console.error("Error occurred:", {
+      timestamp: new Date().toISOString(),
+      path: req.path,
+      method: req.method,
+      error: err.message,
+      stack: err.stack,
+      headers: req.headers,
+      body: req.body,
+    });
+    next(err);
+  }
+);
 
 // Routes
 app.use("/api", routes);
