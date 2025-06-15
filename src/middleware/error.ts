@@ -4,12 +4,10 @@ import { Prisma } from "@prisma/client";
 
 export class AppError extends Error {
   statusCode: number;
-  data?: any;
 
-  constructor(statusCode: number, message: string, data?: any) {
+  constructor(statusCode: number, message: string) {
     super(message);
     this.statusCode = statusCode;
-    this.data = data;
     this.name = "AppError";
   }
 }

@@ -3,8 +3,6 @@ import { PrismaClient } from "@prisma/client";
 import { AppError } from "../middleware/error";
 import { AuthRequest } from "../middleware/auth";
 import { z } from "zod";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 
 const prisma = new PrismaClient();
 
@@ -25,11 +23,8 @@ export const register = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    console.log("Registration attempt:", { body: req.body });
-
     const { name, email, password } = registerSchema.parse(req.body);
 
-    // Check if user exists
     const existingUser = await prisma.user.findUnique({
       where: { email },
     });
@@ -38,16 +33,11 @@ export const register = async (
       throw new AppError(400, "Email already registered");
     }
 
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-
-    // Create user
     const user = await prisma.user.create({
       data: {
         name,
         email,
-        password: hashedPassword,
+        password,
       },
       select: {
         id: true,
@@ -59,27 +49,12 @@ export const register = async (
       },
     });
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { id: user.id },
-      process.env.JWT_SECRET || "your-secret-key",
-      { expiresIn: "30d" }
-    );
-
     res.status(201).json({
       status: "success",
-      data: {
-        user,
-        token,
-      },
+      data: { user },
     });
   } catch (error) {
-    console.error("Registration error:", error);
-    if (error instanceof z.ZodError) {
-      next(new AppError(400, "Invalid input data", error.errors));
-    } else {
-      next(error);
-    }
+    next(error);
   }
 };
 
