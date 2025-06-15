@@ -28,8 +28,8 @@ app.use(limiter);
 app.use(
   cors({
     origin: [
-      process.env.FRONTEND_URL || "http://localhost:5173",
-      "https://full-stack-personal-portfolio-tau.vercel.app",
+      process.env.FRONTEND_URL ||
+        "https://full-stack-personal-portfolio-tau.vercel.app",
       "https://full-stack-personal-portfolio-tau.vercel.app/en",
       "https://full-stack-personal-portfolio-tau.vercel.app/",
     ],

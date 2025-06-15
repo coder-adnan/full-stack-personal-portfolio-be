@@ -3,19 +3,30 @@ import { PrismaClient } from "@prisma/client";
 import { AppError } from "../middleware/error";
 import { AuthRequest } from "../middleware/auth";
 import { z } from "zod";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 
 const prisma = new PrismaClient();
 
 const registerSchema = z.object({
-  name: z.string().min(1),
-  email: z.string().email(),
-  password: z.string().min(6),
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
 });
 
 const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string(),
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(1, "Password is required"),
 });
+
+// Helper function to generate JWT token
+const generateToken = (userId: string, role: string): string => {
+  return jwt.sign(
+    { id: userId, role },
+    process.env.JWT_SECRET || "your-secret-key",
+    { expiresIn: "7d" }
+  );
+};
 
 export const register = async (
   req: Request,
@@ -25,6 +36,7 @@ export const register = async (
   try {
     const { name, email, password } = registerSchema.parse(req.body);
 
+    // Check if user already exists
     const existingUser = await prisma.user.findUnique({
       where: { email },
     });
@@ -33,11 +45,16 @@ export const register = async (
       throw new AppError(400, "Email already registered");
     }
 
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Create user
     const user = await prisma.user.create({
       data: {
         name,
         email,
-        password,
+        password: hashedPassword,
       },
       select: {
         id: true,
@@ -49,11 +66,29 @@ export const register = async (
       },
     });
 
+    // Generate JWT token
+    const token = generateToken(user.id, user.role);
+
+    // Set cookie
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+
     res.status(201).json({
       status: "success",
-      data: { user },
+      data: {
+        user,
+        token,
+      },
     });
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      next(new AppError(400, error.errors[0].message));
+      return;
+    }
     next(error);
   }
 };
@@ -70,11 +105,26 @@ export const login = async (
       where: { email },
     });
 
-    if (!user || user.password !== password) {
+    if (!user) {
       throw new AppError(401, "Invalid email or password");
     }
 
-    const token = "dummy-token"; // TODO: Implement JWT
+    // Verify password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      throw new AppError(401, "Invalid email or password");
+    }
+
+    // Generate JWT token
+    const token = generateToken(user.id, user.role);
+
+    // Set cookie
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
 
     res.json({
       status: "success",
@@ -89,6 +139,10 @@ export const login = async (
       },
     });
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      next(new AppError(400, error.errors[0].message));
+      return;
+    }
     next(error);
   }
 };
