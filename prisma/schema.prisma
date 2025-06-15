@@ -1,0 +1,113 @@
+// This is your Prisma schema file
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id            String        @id @default(cuid())
+  email         String        @unique
+  name          String
+  password      String
+  role          Role         @default(USER)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  appointments  Appointment[]
+  payments      Payment[]
+  blogPosts     BlogPost[]
+  comments      Comment[]
+}
+
+model Appointment {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  date        DateTime
+  time        String
+  topic       String
+  company     String?
+  message     String?
+  status      AppointmentStatus @default(PENDING)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  payment     Payment?
+}
+
+model Payment {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  appointmentId String    @unique
+  appointment   Appointment @relation(fields: [appointmentId], references: [id])
+  amount        Float
+  currency      String    @default("USD")
+  status        PaymentStatus @default(PENDING)
+  stripePaymentId String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+enum BlogPostStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model BlogPost {
+  id          String        @id @default(cuid())
+  title       String
+  content     String        @db.Text
+  slug        String        @unique
+  excerpt     String?       @db.Text
+  published   Boolean       @default(false)
+  status      BlogPostStatus @default(DRAFT)
+  authorId    String
+  author      User          @relation(fields: [authorId], references: [id])
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  tags        String[]
+  imageUrl    String?
+  readTime    Int          @default(5)
+  reviewedBy  String?      // Admin ID who reviewed the post
+  reviewedAt  DateTime?    // When the post was reviewed
+  reviewNotes String?      @db.Text // Optional notes from admin
+  comments    Comment[]    // Relation to comments
+}
+
+model Comment {
+  id        String    @id @default(cuid())
+  content   String    @db.Text
+  postId    String
+  post      BlogPost  @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  parentId  String?   // For nested comments
+  parent    Comment?  @relation("CommentToComment", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[] @relation("CommentToComment")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+} 
