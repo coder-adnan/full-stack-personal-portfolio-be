@@ -1,7 +1,9 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
+var __importDefault =
+  (this && this.__importDefault) ||
+  function (mod) {
+    return mod && mod.__esModule ? mod : { default: mod };
+  };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
@@ -20,15 +22,19 @@ app.use(express_1.default.json());
 app.use((0, cookie_parser_1.default)());
 // Rate limiting
 const limiter = (0, express_rate_limit_1.default)({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
 });
 app.use(limiter);
 // CORS
-app.use((0, cors_1.default)({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+app.use(
+  (0, cors_1.default)({
+    origin:
+      process.env.FRONTEND_URL ||
+      "https://full-stack-personal-portfolio-tau.vercel.app",
     credentials: true,
-}));
+  })
+);
 // Routes
 app.use("/api", routes_1.default);
 // Error handling
