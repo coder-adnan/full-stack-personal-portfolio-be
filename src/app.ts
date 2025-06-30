@@ -28,10 +28,7 @@ app.use(limiter);
 // CORS Configurations
 app.use(
   cors({
-    origin: [
-      process.env.FRONTEND_URL ||
-        "https://full-stack-personal-portfolio-tau.vercel.app",
-    ],
+    origin: [process.env.FRONTEND_URL || "https://fullstackadnan.com"],
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
