@@ -31,10 +31,6 @@ app.use(
     origin: [
       process.env.FRONTEND_URL ||
         "https://full-stack-personal-portfolio-tau.vercel.app",
-      "https://full-stack-personal-portfolio-tau.vercel.app/en",
-      "https://full-stack-personal-portfolio-tau.vercel.app/",
-      "http://localhost:5173",
-      "http://localhost:3000",
     ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],

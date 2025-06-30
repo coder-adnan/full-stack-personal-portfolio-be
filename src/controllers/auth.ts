@@ -72,8 +72,9 @@ export const register = async (
     // Set cookie
     res.cookie("token", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      secure: true,
+      sameSite: "none",
+      domain: ".fullstackadnan.com",
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
@@ -121,8 +122,9 @@ export const login = async (
     // Set cookie
     res.cookie("token", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      secure: true,
+      sameSite: "none",
+      domain: ".fullstackadnan.com",
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
@@ -155,8 +157,9 @@ export const logout = async (
   try {
     res.clearCookie("token", {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      secure: true,
+      sameSite: "none",
+      domain: ".fullstackadnan.com",
     });
     res.json({
       status: "success",
@@ -167,6 +170,7 @@ export const logout = async (
   }
 };
 
+// This line is to trigger the CI/CD
 export const getProfile = async (
   req: AuthRequest,
   res: Response,
