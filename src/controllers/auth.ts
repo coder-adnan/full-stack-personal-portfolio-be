@@ -153,7 +153,11 @@ export const logout = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    // TODO: Implement proper logout (e.g., invalidate token)
+    res.clearCookie("token", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+    });
     res.json({
       status: "success",
       data: null,

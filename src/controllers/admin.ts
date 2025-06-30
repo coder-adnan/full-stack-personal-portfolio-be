@@ -81,6 +81,12 @@ export const getAllBlogPosts = async (
               email: true,
             },
           },
+          reviewedByUser: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
         },
         orderBy: {
           createdAt: "desc",
@@ -761,6 +767,30 @@ export const getPayment = async (
       status: "success",
       data: { payment },
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getAdminBlogPost = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const post = await prisma.blogPost.findUnique({
+      where: { id },
+      include: {
+        author: { select: { id: true, name: true, email: true } },
+        reviewedByUser: { select: { id: true, name: true } },
+      },
+    });
+    if (!post) {
+      res.status(404).json({ status: "error", message: "Blog post not found" });
+      return;
+    }
+    res.json({ status: "success", data: { post } });
   } catch (error) {
     next(error);
   }

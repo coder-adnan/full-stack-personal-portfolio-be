@@ -20,6 +20,7 @@ model User {
   payments      Payment[]
   blogPosts     BlogPost[]
   comments      Comment[]
+  reviewedBlogs BlogPost[] @relation("ReviewedBy")
 }
 
 model Appointment {
@@ -58,10 +59,12 @@ enum BlogPostStatus {
   REJECTED
 }
 
+
 model BlogPost {
   id          String        @id @default(cuid())
   title       String
-  content     String        @db.Text
+  content     Json
+  blocks Block[]
   slug        String        @unique
   excerpt     String?       @db.Text
   published   Boolean       @default(false)
@@ -73,12 +76,23 @@ model BlogPost {
   tags        String[]
   imageUrl    String?
   readTime    Int          @default(5)
-  reviewedBy  String?      // Admin ID who reviewed the post
-  reviewedAt  DateTime?    // When the post was reviewed
+  reviewedBy  String?      
+  reviewedByUser User? @relation("ReviewedBy", fields: [reviewedBy], references: [id])
+  reviewedAt  DateTime?    
   reviewNotes String?      @db.Text // Optional notes from admin
   comments    Comment[]    // Relation to comments
 }
-
+model Block {
+  id          String   @id @default(cuid())
+  postId      String
+  post        BlogPost @relation(fields: [postId], references: [id])
+  type        String   // 'text', 'image', 'heading'
+  content     String
+  imageUrl    String?
+  order       Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
 model Comment {
   id        String    @id @default(cuid())
   content   String    @db.Text
@@ -110,4 +124,13 @@ enum PaymentStatus {
   COMPLETED
   FAILED
   REFUNDED
+}
+
+model Campaign {
+  id        String   @id @default(cuid())
+  name      String
+  subject   String
+  template  String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 } 

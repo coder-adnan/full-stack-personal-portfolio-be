@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { AppError } from "./error";
 import { PrismaClient, Role } from "@prisma/client";
 import jwt from "jsonwebtoken";
+import * as cookie from "cookie";
 
 const prisma = new PrismaClient();
 
@@ -24,7 +25,15 @@ export const authenticate = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const token = req.headers.authorization?.split(" ")[1];
+    let token = req.headers.authorization?.split(" ")[1];
+    console.log("Token from header:", token);
+
+    // If not in header, try to get from cookies
+    if (!token && req.headers.cookie) {
+      const cookies = cookie.parse(req.headers.cookie);
+      token = cookies.token;
+      console.log("Token from cookie:", token);
+    }
 
     if (!token) {
       throw new AppError(401, "Not authorized to access this route");

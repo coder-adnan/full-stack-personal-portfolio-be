@@ -1,4 +1,4 @@
-import { Router, Request, Response } from "express";
+import { Router } from "express";
 import authRoutes from "./auth";
 import appointmentRoutes from "./appointment";
 import paymentRoutes from "./payment";
@@ -9,7 +9,7 @@ import commentRoutes from "./comment";
 const router = Router();
 
 // Health check
-router.get("/health", (_req: Request, res: Response) => {
+router.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 

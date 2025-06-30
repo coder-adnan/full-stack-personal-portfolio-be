@@ -3,59 +3,24 @@ import { z } from "zod";
 import { PrismaClient } from "@prisma/client";
 import { AppError } from "../middleware/error";
 import { AuthRequest } from "../middleware/auth";
+import generateSlots from "../utils/generateSlots";
 
 const prisma = new PrismaClient();
 
-// Business hours configuration
-const BUSINESS_HOURS = {
-  start: 9, // 9 AM
-  end: 17, // 5 PM
-  slotDuration: 60, // 60 minutes per slot
-  workingDays: [1, 2, 3, 4, 5], // Monday to Friday
-};
-
-// Generate time slots for a given date
-const generateTimeSlots = (date: Date) => {
-  const slots: string[] = [];
-  const dayOfWeek = date.getDay();
-
-  // Check if it's a working day
-  if (!BUSINESS_HOURS.workingDays.includes(dayOfWeek)) {
-    return slots;
+// Helper to get slot rules for a given day
+function getSlotRangeForDay(day: number): { start: string; end: string } {
+  // 0 = Sunday, 5 = Friday, 6 = Saturday
+  if (day === 6) {
+    // Saturday: 00:00 to 14:00
+    return { start: "00:00", end: "14:00" };
+  } else if (day === 5) {
+    // Friday: 14:00 to 23:30 (assuming you meant 2PM to 11:30PM)
+    return { start: "14:00", end: "23:30" };
+  } else {
+    // Other days: 18:00 to 23:30
+    return { start: "18:00", end: "23:30" };
   }
-
-  // Generate slots for the day
-  for (let hour = BUSINESS_HOURS.start; hour < BUSINESS_HOURS.end; hour++) {
-    const time = `${hour.toString().padStart(2, "0")}:00`;
-    slots.push(time);
-  }
-
-  return slots;
-};
-
-// Get the next available day
-const getNextAvailableDay = async (startDate: Date): Promise<Date> => {
-  let currentDate = new Date(startDate);
-  let attempts = 0;
-  const maxAttempts = 30; // Look ahead up to 30 days
-
-  while (attempts < maxAttempts) {
-    // Check if it's a working day
-    if (BUSINESS_HOURS.workingDays.includes(currentDate.getDay())) {
-      // Check if there are any available slots
-      const slots = await getAvailableSlotsForDate(currentDate);
-      if (slots.length > 0) {
-        return currentDate;
-      }
-    }
-
-    // Move to next day
-    currentDate.setDate(currentDate.getDate() + 1);
-    attempts++;
-  }
-
-  throw new AppError(404, "No available slots found in the next 30 days");
-};
+}
 
 // Get available slots for a specific date
 export const getAvailableSlots = async (
@@ -75,10 +40,16 @@ export const getAvailableSlots = async (
     // If no slots available, find the next available day
     let nextAvailableDay = null;
     if (availableSlots.length === 0) {
-      try {
-        nextAvailableDay = await getNextAvailableDay(selectedDate);
-      } catch (error) {
-        // If no next available day found, we'll just return empty slots
+      let attempts = 0;
+      let nextDate = new Date(selectedDate);
+      while (attempts < 30) {
+        nextDate.setDate(nextDate.getDate() + 1);
+        const slots = await getAvailableSlotsForDate(nextDate);
+        if (slots.length > 0) {
+          nextAvailableDay = nextDate;
+          break;
+        }
+        attempts++;
       }
     }
 
@@ -97,8 +68,9 @@ export const getAvailableSlots = async (
 
 // Helper function to get available slots for a date
 async function getAvailableSlotsForDate(date: Date): Promise<string[]> {
-  // Get all slots for the day
-  const allSlots = generateTimeSlots(date);
+  const day = date.getDay();
+  const { start, end } = getSlotRangeForDay(day);
+  const allSlots = generateSlots(start, end);
   if (allSlots.length === 0) {
     return [];
   }
@@ -116,7 +88,9 @@ async function getAvailableSlotsForDate(date: Date): Promise<string[]> {
     },
   });
 
-  const bookedTimes = new Set(bookedAppointments.map((apt) => apt.time));
+  const bookedTimes = new Set(
+    bookedAppointments.map((apt) => apt.time.slice(0, 5))
+  );
 
   // Filter out booked slots
   return allSlots.filter((slot) => !bookedTimes.has(slot));
