@@ -3,6 +3,7 @@ import { AppError } from "./error";
 import { PrismaClient, Role } from "@prisma/client";
 import jwt from "jsonwebtoken";
 import * as cookie from "cookie";
+import { adminAuth } from "../config/firebaseAdmin";
 
 const prisma = new PrismaClient();
 
@@ -39,6 +40,7 @@ export const authenticate = async (
       throw new AppError(401, "Not authorized to access this route");
     }
 
+    // Try JWT verification first (existing logic)
     try {
       const decoded = jwt.verify(
         token,
@@ -59,12 +61,19 @@ export const authenticate = async (
       }
 
       req.user = user;
-      next();
+      return next();
     } catch (error) {
-      if (error instanceof jwt.JsonWebTokenError) {
+      // If JWT fails, try Firebase
+      try {
+        const decoded = await adminAuth.verifyIdToken(token);
+        req.user = {
+          id: decoded.uid,
+          role: "USER", // or map custom claims if you use them
+        };
+        return next();
+      } catch (firebaseError) {
         throw new AppError(401, "Invalid token");
       }
-      throw error;
     }
   } catch (error) {
     next(error);
