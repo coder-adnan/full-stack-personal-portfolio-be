@@ -50,3 +50,5 @@ jobs:
             cd /home/ubuntu/full-stack-personal-portfolio-be/backend
             npm install --production
             pm2 restart portfolio-backend
+
+# fixed CI/CD
