@@ -3,12 +3,14 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
-import { config } from "dotenv";
+import dotenv from "dotenv";
 import routes from "./routes";
 import { errorHandler, notFoundHandler } from "./middleware/error";
 
 // Load environment variables
-config();
+const envFile =
+  process.env.NODE_ENV === "production" ? ".env.production" : ".env.local";
+dotenv.config({ path: envFile });
 
 const app = express();
 

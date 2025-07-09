@@ -1,14 +1,21 @@
 import { initializeApp, cert, getApps } from "firebase-admin/app";
+import dotenv from "dotenv";
 import { getAuth } from "firebase-admin/auth";
+import fs from "fs";
+const envFile =
+  process.env.NODE_ENV === "production" ? ".env.production" : ".env.local";
+// Load environment variables
+dotenv.config({ path: envFile });
 
-// Only initialize if not already initialized (for hot reload/dev)
+// console.log(process.env.FIREBASE_SERVICE_ACCOUNT);
+// const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT!);
+const serviceAccount = JSON.parse(
+  fs.readFileSync(process.env.FIREBASE_SERVICE_ACCOUNT_PATH!, "utf8")
+);
+
 if (!getApps().length) {
   initializeApp({
-    credential: cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY,
-    }),
+    credential: cert(serviceAccount),
   });
 }
 

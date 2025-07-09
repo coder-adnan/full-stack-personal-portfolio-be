@@ -5,6 +5,7 @@ import { AuthRequest } from "../middleware/auth";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { adminAuth } from "../config/firebaseAdmin";
 
 const prisma = new PrismaClient();
 
@@ -26,6 +27,18 @@ const generateToken = (userId: string, role: string): string => {
     process.env.JWT_SECRET || "your-secret-key",
     { expiresIn: "7d" }
   );
+};
+
+// Helper to get cookie options based on environment
+const getCookieOptions = () => {
+  const isProd = process.env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+    domain: isProd ? ".fullstackadnan.com" : undefined,
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  };
 };
 
 export const register = async (
@@ -70,13 +83,7 @@ export const register = async (
     const token = generateToken(user.id, user.role);
 
     // Set cookie
-    res.cookie("token", token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-      domain: ".fullstackadnan.com",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
+    res.cookie("token", token, getCookieOptions());
 
     res.status(201).json({
       status: "success",
@@ -120,13 +127,7 @@ export const login = async (
     const token = generateToken(user.id, user.role);
 
     // Set cookie
-    res.cookie("token", token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-      domain: ".fullstackadnan.com",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
+    res.cookie("token", token, getCookieOptions());
 
     res.json({
       status: "success",
@@ -155,12 +156,7 @@ export const logout = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    res.clearCookie("token", {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-      domain: ".fullstackadnan.com",
-    });
+    res.clearCookie("token", getCookieOptions());
     res.json({
       status: "success",
       data: null,
@@ -339,6 +335,50 @@ export const deleteMe = async (
       status: "success",
       data: null,
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const firebaseLogin = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { idToken } = req.body;
+    if (!idToken) {
+      return res.status(400).json({ message: "Missing Firebase ID token" });
+    }
+
+    // Verify token
+    const decoded = await adminAuth.verifyIdToken(idToken);
+
+    // Find or create user in your DB
+    let user = await prisma.user.findUnique({
+      where: { email: decoded.email! },
+    });
+    if (!user) {
+      // Hash the dummy password for social login
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash("firebase", salt);
+      user = await prisma.user.create({
+        data: {
+          email: decoded.email!,
+          name: decoded.name || decoded.email!.split("@")[0],
+          password: hashedPassword,
+        },
+      });
+    }
+
+    // Issue session/cookie/JWT (reuse your existing logic)
+    // For example, if you use JWT:
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET!, {
+      expiresIn: "7d",
+    });
+    res.cookie("token", token, getCookieOptions());
+
+    res.json({ status: "success", data: { user } });
   } catch (error) {
     next(error);
   }

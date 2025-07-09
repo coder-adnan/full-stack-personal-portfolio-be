@@ -1,5 +1,11 @@
 import express from "express";
-import { register, login, logout, getProfile } from "../controllers/auth";
+import {
+  register,
+  login,
+  logout,
+  getProfile,
+  firebaseLogin,
+} from "../controllers/auth";
 import { authenticate } from "../middleware/auth";
 import { RequestHandler } from "express";
 
@@ -9,6 +15,7 @@ const router = express.Router();
 router.post("/register", register as RequestHandler);
 router.post("/login", login as RequestHandler);
 router.post("/logout", logout as RequestHandler);
+router.post("/firebase-login", firebaseLogin as RequestHandler);
 
 // Protected routes
 router.get(
