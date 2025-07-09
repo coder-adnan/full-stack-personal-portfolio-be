@@ -35,7 +35,7 @@ const getCookieOptions = () => {
   return {
     httpOnly: true,
     secure: isProd,
-    sameSite: isProd ? "none" : "lax",
+    sameSite: isProd ? ("none" as const) : ("lax" as const),
     domain: isProd ? ".fullstackadnan.com" : undefined,
     maxAge: 7 * 24 * 60 * 60 * 1000,
   };
@@ -348,7 +348,8 @@ export const firebaseLogin = async (
   try {
     const { idToken } = req.body;
     if (!idToken) {
-      return res.status(400).json({ message: "Missing Firebase ID token" });
+      res.status(400).json({ message: "Missing Firebase ID token" });
+      return;
     }
 
     // Verify token
@@ -379,7 +380,9 @@ export const firebaseLogin = async (
     res.cookie("token", token, getCookieOptions());
 
     res.json({ status: "success", data: { user } });
+    return;
   } catch (error) {
     next(error);
+    return;
   }
 };
