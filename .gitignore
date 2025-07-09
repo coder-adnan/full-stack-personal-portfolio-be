@@ -13,4 +13,8 @@ coverage/
 *.env.*
 
 
-src/config/firebaseServiceAccount.json
+# Firebase/Google credentials
+/src/config/firebaseServiceAccount.json
+/config/firebaseServiceAccount.json
+*.json.key
+*.p12
