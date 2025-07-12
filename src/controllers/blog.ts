@@ -227,7 +227,9 @@ export const createBlogPost = async (
       include: {
         author: {
           select: {
+            id: true,
             name: true,
+            email: true,
           },
         },
       },
